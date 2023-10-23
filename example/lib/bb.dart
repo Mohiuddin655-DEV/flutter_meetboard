@@ -17,8 +17,8 @@ class MyApp extends StatelessWidget {
           title: const Text("Draggable Example"),
         ),
         body: DraggableView(
-          draggingAnimTime: 300,
-          type: DraggingMode.cornerSide,
+          draggingAnimTime: 0,
+          type: DraggingMode.bottomCenterTopAnywhere,
           object: DraggableObject.circle(
             size: 100,
             child: Container(color: Colors.red),
