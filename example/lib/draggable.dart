@@ -3,27 +3,29 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-class DraggableView extends StatefulWidget {
-  final int draggingAnimTime;
-  final int draggedAnimTime;
-  final DraggingMode type;
-  final DraggableObject object;
+class Moveable extends StatefulWidget {
+  final int movingAnimationTime;
+  final int movedAnimationTime;
+  final Alignment alignment;
+  final MovingType type;
+  final MoveableObject object;
   final Widget child;
 
-  const DraggableView({
+  const Moveable({
     super.key,
-    this.type = DraggingMode.anywhere,
+    this.alignment = Alignment.topLeft,
+    this.type = MovingType.anywhere,
     required this.object,
     required this.child,
-    this.draggingAnimTime = 100,
-    this.draggedAnimTime = 300,
+    this.movingAnimationTime = 100,
+    this.movedAnimationTime = 300,
   });
 
   @override
-  State<DraggableView> createState() => _DraggableViewState();
+  State<Moveable> createState() => _MoveableState();
 }
 
-class _DraggableViewState extends State<DraggableView> {
+class _MoveableState extends State<Moveable> {
   BoxConstraints constraints = const BoxConstraints();
   Offset offset = Offset.zero;
   Size objectSize = Size.zero;
@@ -38,7 +40,7 @@ class _DraggableViewState extends State<DraggableView> {
   }
 
   @override
-  void didUpdateWidget(covariant DraggableView oldWidget) {
+  void didUpdateWidget(covariant Moveable oldWidget) {
     SchedulerBinding.instance.addPostFrameCallback(_onPanInit);
     super.didUpdateWidget(oldWidget);
   }
@@ -50,21 +52,22 @@ class _DraggableViewState extends State<DraggableView> {
         constraints = con;
         return Stack(
           children: [
+            widget.child,
             AnimatedPositioned(
               duration: Duration(
                 milliseconds: draggingMode
-                    ? widget.draggingAnimTime
-                    : widget.draggedAnimTime,
+                    ? widget.movingAnimationTime
+                    : widget.movedAnimationTime,
               ),
               left: offset.dx,
               top: offset.dy,
               child: GestureDetector(
                 onPanUpdate: _onPanUpdate,
-                onPanEnd: widget.type.isAnywhere ? null : _onPanEndHandle,
+                onPanEnd:
+                    widget.type != MovingType.anywhere ? _onPanEndHandle : null,
                 child: widget.object,
               ),
             ),
-            widget.child,
           ],
         );
       },
@@ -73,69 +76,59 @@ class _DraggableViewState extends State<DraggableView> {
 
   void _onPanInit([Duration? duration]) {
     draggingMode = true;
-    offset = _position(widget.type);
+    offset = _initial();
     setState(() {});
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
     draggingMode = true;
-    offset = _position(DraggingMode.anywhere, details.delta);
+    offset = _update(details.delta);
     setState(() {});
   }
 
   void _onPanEndHandle(DragEndDetails details) {
     draggingMode = false;
-    offset = _position(widget.type);
+    offset = _finalization();
     setState(() {});
   }
 
-  Offset _position(DraggingMode mode, [Offset delta = Offset.zero]) {
-    var position = DraggingPosition(
+  Offset _initial() {
+    return MoveablePosition(
+      type: widget.type,
       constraints: constraints,
-      offset: offset,
       objectSize: objectSize,
-    );
-    switch (mode) {
-      case DraggingMode.anywhere:
-        return position.anywhere(delta);
-      case DraggingMode.bottomCenterTopAnywhere:
-        return position.bottomCenterTopAnywhere();
-      case DraggingMode.bottomCenterTopCorner:
-        return position.bottomCenterTopCorner();
-      case DraggingMode.centerSide:
-        return position.centerSide();
-      case DraggingMode.cornerSide:
-        return position.cornerSide();
-      case DraggingMode.leftCenterRightAnywhere:
-        return position.leftCenterRightAnywhere();
-      case DraggingMode.leftCenterRightCorner:
-        return position.leftCenterRightCorner();
-      case DraggingMode.nearestSide:
-        return position.nearestSide();
-      case DraggingMode.rightCenterLeftAnywhere:
-        return position.rightCenterLeftAnywhere();
-      case DraggingMode.rightCenterLeftCorner:
-        return position.rightCenterLeftCorner();
-      case DraggingMode.topCenterBottomAnywhere:
-        return position.topCenterBottomAnywhere();
-      case DraggingMode.topCenterBottomCorner:
-        return position.topCenterBottomCorner();
-    }
+    ).initial(widget.alignment);
+  }
+
+  Offset _update(Offset delta) {
+    return MoveablePosition(
+      type: widget.type,
+      constraints: constraints,
+      objectSize: objectSize,
+    ).update(offset, delta);
+  }
+
+  Offset _finalization() {
+    return MoveablePosition(
+      type: widget.type,
+      constraints: constraints,
+      objectSize: objectSize,
+    ).finalization(offset);
   }
 }
 
-class DraggingPosition {
+class MoveablePosition {
+  final MovingType type;
   final BoxConstraints constraints;
-  final Offset offset;
   final Size objectSize;
 
-  const DraggingPosition({
+  const MoveablePosition({
+    this.type = MovingType.anywhere,
     required this.constraints,
-    required this.offset,
     required this.objectSize,
   });
 
-  Alignment get alignment {
+  Alignment alignment(Offset offset) {
     double x = offset.dx;
     double y = offset.dy;
     double xMid = constraints.maxWidth / 2;
@@ -150,106 +143,41 @@ class DraggingPosition {
     }
   }
 
-  Offset anywhere(Offset delta) {
+  Offset initial(Alignment alignment) {
     /// Find the object size
     double ox = objectSize.width;
     double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
 
     /// Find the total offset
     double xMax = constraints.maxWidth;
     double yMax = constraints.maxHeight;
 
-    /// Calculate the position of the object
-    double x = max(0, min(xTarget + delta.dx, xMax - ox));
-    double y = max(0, min(yTarget + delta.dy, yMax - oy));
+    /// Calculate the remaining area
+    double xRemaining = xMax - ox;
+    double yRemaining = yMax - oy;
 
-    return Offset(x, y);
-  }
-
-  Offset nearestSide() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + (ox / 2);
-    double yCenter = yTarget + (oy / 2);
-
-    /// Calculate the distances from each side
-    double leftDistance = xCenter;
-    double rightDistance = xMax - xCenter;
-    double topDistance = yCenter;
-    double bottomDistance = yMax - yCenter;
-
-    /// Find the nearest side
-    double minDistance = min(
-      leftDistance,
-      min(rightDistance, min(topDistance, bottomDistance)),
-    );
-
-    if (minDistance == leftDistance) {
-      xTarget = 0;
-    } else if (minDistance == rightDistance) {
-      xTarget = xMax - ox;
-    } else if (minDistance == topDistance) {
-      yTarget = 0;
-    } else if (minDistance == bottomDistance) {
-      yTarget = yMax - oy;
-    }
-
-    return Offset(xTarget, yTarget);
-  }
-
-  Offset cornerSide() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + ox / 2;
-    double yCenter = yTarget + oy / 2;
-
-    /// Calculate the mid of the area
-    double xMid = xMax / 2;
-    double yMid = yMax / 2;
-
-    /// Find the nearest corner
-    if (xCenter <= xMid) {
-      xTarget = 0;
+    if (alignment == Alignment.center && type == MovingType.anywhere) {
+      return Offset(xRemaining / 2, yRemaining / 2);
+    } else if (alignment == Alignment.topRight) {
+      return Offset(xRemaining, 0);
+    } else if (alignment == Alignment.topCenter) {
+      return Offset(xRemaining / 2, 0);
+    } else if (alignment == Alignment.bottomLeft) {
+      return Offset(0, yRemaining);
+    } else if (alignment == Alignment.bottomRight) {
+      return Offset(xRemaining, yRemaining);
+    } else if (alignment == Alignment.bottomCenter) {
+      return Offset(xRemaining / 2, yRemaining);
+    } else if (alignment == Alignment.centerRight) {
+      return Offset(xRemaining, yRemaining / 2);
+    } else if (alignment == Alignment.centerLeft) {
+      return Offset(0, yRemaining / 2);
     } else {
-      xTarget = xMax - ox;
+      return Offset.zero;
     }
-
-    if (yCenter <= yMid) {
-      yTarget = 0;
-    } else {
-      yTarget = yMax - oy;
-    }
-
-    return Offset(xTarget, yTarget);
   }
 
-  Offset centerSide() {
+  Offset update(Offset offset, Offset delta) {
     /// Find the object size
     double ox = objectSize.width;
     double oy = objectSize.height;
@@ -262,40 +190,14 @@ class DraggingPosition {
     double xMax = constraints.maxWidth;
     double yMax = constraints.maxHeight;
 
-    /// Calculate the center of the object
-    double xCenter = xTarget + ox / 2;
-    double yCenter = yTarget + oy / 2;
-
-    /// Calculate the distances from each side
-    double leftDistance = xCenter;
-    double rightDistance = xMax - (xCenter + ox);
-    double topDistance = yCenter;
-    double bottomDistance = yMax - (yCenter + oy);
-
-    /// Find the nearest side
-    double minDistance = min(
-      leftDistance,
-      min(rightDistance, min(topDistance, bottomDistance)),
-    );
-
-    if (minDistance == leftDistance) {
-      xTarget = 0;
-      yTarget = (yMax - oy) / 2;
-    } else if (minDistance == rightDistance) {
-      xTarget = xMax - ox;
-      yTarget = (yMax - oy) / 2;
-    } else if (minDistance == topDistance) {
-      xTarget = (xMax - ox) / 2;
-      yTarget = 0;
-    } else if (minDistance == bottomDistance) {
-      xTarget = (xMax - ox) / 2;
-      yTarget = yMax - oy;
-    }
+    /// Calculate the current position of the object
+    xTarget = max(0, min(xTarget + delta.dx, xMax - ox));
+    yTarget = max(0, min(yTarget + delta.dy, yMax - oy));
 
     return Offset(xTarget, yTarget);
   }
 
-  Offset bottomCenterTopAnywhere() {
+  Offset finalization(Offset offset) {
     /// Find the object size
     double ox = objectSize.width;
     double oy = objectSize.height;
@@ -308,133 +210,48 @@ class DraggingPosition {
     double xMax = constraints.maxWidth;
     double yMax = constraints.maxHeight;
 
-    /// Calculate the center of the object
-    double yCenter = yTarget + (oy / 2);
+    /// Center Side
+    if (type == MovingType.centerSide) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + ox / 2;
+      double yCenter = yTarget + oy / 2;
 
-    /// Calculate the distances from each side
-    double topDistance = yCenter;
-    double bottomDistance = yMax - yCenter;
+      /// Calculate the distances from each side
+      double leftDistance = xCenter;
+      double rightDistance = xMax - xCenter;
+      double topDistance = yCenter;
+      double bottomDistance = yMax - yCenter;
 
-    /// Find the nearest side
-    double minDistance = min(topDistance, bottomDistance);
+      /// Find the nearest side
+      double minDistance = min(
+        leftDistance,
+        min(rightDistance, min(topDistance, bottomDistance)),
+      );
 
-    if (minDistance == topDistance) {
-      yTarget = 0;
-    } else if (minDistance == bottomDistance) {
-      xTarget = (xMax - ox) / 2;
-      yTarget = yMax - oy;
-    }
-
-    return Offset(xTarget, yTarget);
-  }
-
-  Offset bottomCenterTopCorner() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + ox / 2;
-    double yCenter = yTarget + oy / 2;
-
-    /// Calculate the distances from each side
-    double topDistance = yCenter;
-    double bottomDistance = yMax - (yCenter + oy);
-
-    /// Find the nearest side
-    double minDistance = min(topDistance, bottomDistance);
-
-    if (minDistance == topDistance) {
-      yTarget = 0;
-
-      /// Calculate the mid of the area
-      double xMid = xMax / 2;
-
-      /// Find the nearest corner
-      if (xCenter <= xMid) {
+      if (minDistance == leftDistance) {
         xTarget = 0;
-      } else {
+        yTarget = (yMax - oy) / 2;
+      } else if (minDistance == rightDistance) {
         xTarget = xMax - ox;
+        yTarget = (yMax - oy) / 2;
+      } else if (minDistance == topDistance) {
+        xTarget = (xMax - ox) / 2;
+        yTarget = 0;
+      } else if (minDistance == bottomDistance) {
+        xTarget = (xMax - ox) / 2;
+        yTarget = yMax - oy;
       }
-    } else if (minDistance == bottomDistance) {
-      xTarget = (xMax - ox) / 2;
-      yTarget = yMax - oy;
     }
 
-    return Offset(xTarget, yTarget);
-  }
+    /// Corner Side
+    else if (type == MovingType.cornerSide) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + ox / 2;
+      double yCenter = yTarget + oy / 2;
 
-  Offset topCenterBottomAnywhere() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double yCenter = yTarget + (oy / 2);
-
-    /// Calculate the distances from each side
-    double topDistance = yCenter;
-    double bottomDistance = yMax - yCenter;
-
-    /// Find the nearest side
-    double minDistance = min(topDistance, bottomDistance);
-
-    if (minDistance == topDistance) {
-      yTarget = 0;
-      xTarget = (xMax - ox) / 2;
-    } else if (minDistance == bottomDistance) {
-      yTarget = yMax - oy;
-    }
-
-    return Offset(xTarget, yTarget);
-  }
-
-  Offset topCenterBottomCorner() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + ox / 2;
-    double yCenter = yTarget + oy / 2;
-
-    /// Calculate the distances from each side
-    double topDistance = yCenter;
-    double bottomDistance = yMax - (yCenter + oy);
-
-    /// Find the nearest side
-    double minDistance = min(topDistance, bottomDistance);
-
-    if (minDistance == topDistance) {
-      yTarget = 0;
-      xTarget = (xMax - ox) / 2;
-    } else if (minDistance == bottomDistance) {
       /// Calculate the mid of the area
       double xMid = xMax / 2;
+      double yMid = yMax / 2;
 
       /// Find the nearest corner
       if (xCenter <= xMid) {
@@ -443,78 +260,6 @@ class DraggingPosition {
         xTarget = xMax - ox;
       }
 
-      yTarget = yMax - oy;
-    }
-
-    return Offset(xTarget, yTarget);
-  }
-
-  Offset leftCenterRightAnywhere() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + (ox / 2);
-
-    /// Calculate the distances from each side
-    double rightDistance = xCenter;
-    double leftDistance = xMax - xCenter;
-
-    /// Find the nearest side
-    double minDistance = min(rightDistance, leftDistance);
-
-    if (minDistance == rightDistance) {
-      xTarget = 0;
-      yTarget = (yMax - oy) / 2;
-    } else if (minDistance == leftDistance) {
-      xTarget = xMax - ox;
-    }
-
-    return Offset(xTarget, yTarget);
-  }
-
-  Offset leftCenterRightCorner() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + ox / 2;
-    double yCenter = yTarget + oy / 2;
-
-    /// Calculate the distances from each side
-    double rightDistance = xCenter;
-    double leftDistance = xMax - (xCenter + ox);
-
-    /// Find the nearest side
-    double minDistance = min(rightDistance, leftDistance);
-
-    if (minDistance == rightDistance) {
-      xTarget = 0;
-      yTarget = (yMax - oy) / 2;
-    } else if (minDistance == leftDistance) {
-      xTarget = xMax - ox;
-
-      /// Calculate the mid of the area
-      double yMid = yMax / 2;
-
       if (yCenter <= yMid) {
         yTarget = 0;
       } else {
@@ -522,88 +267,287 @@ class DraggingPosition {
       }
     }
 
-    return Offset(xTarget, yTarget);
-  }
+    /// Nearest Side
+    else if (type == MovingType.nearestSide) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + (ox / 2);
+      double yCenter = yTarget + (oy / 2);
 
-  Offset rightCenterLeftAnywhere() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
+      /// Calculate the distances from each side
+      double leftDistance = xCenter;
+      double rightDistance = xMax - xCenter;
+      double topDistance = yCenter;
+      double bottomDistance = yMax - yCenter;
 
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
+      /// Find the nearest side
+      double minDistance = min(
+        leftDistance,
+        min(rightDistance, min(topDistance, bottomDistance)),
+      );
 
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + (ox / 2);
-
-    /// Calculate the distances from each side
-    double rightDistance = xCenter;
-    double leftDistance = xMax - xCenter;
-
-    /// Find the nearest side
-    double minDistance = min(rightDistance, leftDistance);
-
-    if (minDistance == rightDistance) {
-      xTarget = 0;
-    } else if (minDistance == leftDistance) {
-      xTarget = xMax - ox;
-      yTarget = (yMax - oy) / 2;
-    }
-
-    return Offset(xTarget, yTarget);
-  }
-
-  Offset rightCenterLeftCorner() {
-    /// Find the object size
-    double ox = objectSize.width;
-    double oy = objectSize.height;
-
-    /// Find the old offset
-    double xTarget = offset.dx;
-    double yTarget = offset.dy;
-
-    /// Find the total offset
-    double xMax = constraints.maxWidth;
-    double yMax = constraints.maxHeight;
-
-    /// Calculate the center of the object
-    double xCenter = xTarget + ox / 2;
-    double yCenter = yTarget + oy / 2;
-
-    /// Calculate the distances from each side
-    double rightDistance = xCenter;
-    double leftDistance = xMax - (xCenter + ox);
-
-    /// Find the nearest side
-    double minDistance = min(rightDistance, leftDistance);
-
-    if (minDistance == rightDistance) {
-      xTarget = 0;
-
-      /// Calculate the mid of the area
-      double yMid = yMax / 2;
-
-      /// Find the nearest corner
-      if (yCenter <= yMid) {
+      if (minDistance == leftDistance) {
+        xTarget = 0;
+      } else if (minDistance == rightDistance) {
+        xTarget = xMax - ox;
+      } else if (minDistance == topDistance) {
         yTarget = 0;
-      } else {
+      } else if (minDistance == bottomDistance) {
         yTarget = yMax - oy;
       }
-    } else if (minDistance == leftDistance) {
-      xTarget = xMax - ox;
-      yTarget = (yMax - oy) / 2;
+    }
+
+    /// Bottom-Center => Top-Anywhere
+    else if (type == MovingType.bottomCenterTopAnywhere) {
+      /// Calculate the center of the object
+      double yCenter = yTarget + (oy / 2);
+
+      /// Calculate the distances from each side
+      double topDistance = yCenter;
+      double bottomDistance = yMax - yCenter;
+
+      /// Find the nearest side
+      double minDistance = min(topDistance, bottomDistance);
+
+      if (minDistance == topDistance) {
+        yTarget = 0;
+      } else if (minDistance == bottomDistance) {
+        xTarget = (xMax - ox) / 2;
+        yTarget = yMax - oy;
+      }
+    }
+
+    /// Bottom-Center => Top-Corner
+    else if (type == MovingType.bottomCenterTopCorner) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + ox / 2;
+      double yCenter = yTarget + oy / 2;
+
+      /// Calculate the distances from each side
+      double topDistance = yCenter;
+      double bottomDistance = yMax - (yCenter + oy);
+
+      /// Find the nearest side
+      double minDistance = min(topDistance, bottomDistance);
+
+      if (minDistance == topDistance) {
+        yTarget = 0;
+
+        /// Calculate the mid of the area
+        double xMid = xMax / 2;
+
+        /// Find the nearest corner
+        if (xCenter <= xMid) {
+          xTarget = 0;
+        } else {
+          xTarget = xMax - ox;
+        }
+      } else if (minDistance == bottomDistance) {
+        xTarget = (xMax - ox) / 2;
+        yTarget = yMax - oy;
+      }
+    }
+
+    /// Top-Center => Bottom-Anywhere
+    else if (type == MovingType.topCenterBottomAnywhere) {
+      /// Calculate the center of the object
+      double yCenter = yTarget + (oy / 2);
+
+      /// Calculate the distances from each side
+      double topDistance = yCenter;
+      double bottomDistance = yMax - yCenter;
+
+      /// Find the nearest side
+      double minDistance = min(topDistance, bottomDistance);
+
+      if (minDistance == topDistance) {
+        yTarget = 0;
+        xTarget = (xMax - ox) / 2;
+      } else if (minDistance == bottomDistance) {
+        yTarget = yMax - oy;
+      }
+    }
+
+    /// Top-Center => Bottom-Corner
+    else if (type == MovingType.topCenterBottomCorner) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + ox / 2;
+      double yCenter = yTarget + oy / 2;
+
+      /// Calculate the distances from each side
+      double topDistance = yCenter;
+      double bottomDistance = yMax - (yCenter + oy);
+
+      /// Find the nearest side
+      double minDistance = min(topDistance, bottomDistance);
+
+      if (minDistance == topDistance) {
+        yTarget = 0;
+        xTarget = (xMax - ox) / 2;
+      } else if (minDistance == bottomDistance) {
+        /// Calculate the mid of the area
+        double xMid = xMax / 2;
+
+        /// Find the nearest corner
+        if (xCenter <= xMid) {
+          xTarget = 0;
+        } else {
+          xTarget = xMax - ox;
+        }
+
+        yTarget = yMax - oy;
+      }
+    }
+
+    /// Left-Center => Right-Anywhere
+    else if (type == MovingType.leftCenterRightAnywhere) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + (ox / 2);
+
+      /// Calculate the distances from each side
+      double rightDistance = xCenter;
+      double leftDistance = xMax - xCenter;
+
+      /// Find the nearest side
+      double minDistance = min(rightDistance, leftDistance);
+
+      if (minDistance == rightDistance) {
+        xTarget = 0;
+        yTarget = (yMax - oy) / 2;
+      } else if (minDistance == leftDistance) {
+        xTarget = xMax - ox;
+      }
+    }
+
+    /// Left-Center => Right-Corner
+    else if (type == MovingType.leftCenterRightCorner) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + ox / 2;
+      double yCenter = yTarget + oy / 2;
+
+      /// Calculate the distances from each side
+      double rightDistance = xCenter;
+      double leftDistance = xMax - (xCenter + ox);
+
+      /// Find the nearest side
+      double minDistance = min(rightDistance, leftDistance);
+
+      if (minDistance == rightDistance) {
+        xTarget = 0;
+        yTarget = (yMax - oy) / 2;
+      } else if (minDistance == leftDistance) {
+        xTarget = xMax - ox;
+
+        /// Calculate the mid of the area
+        double yMid = yMax / 2;
+
+        if (yCenter <= yMid) {
+          yTarget = 0;
+        } else {
+          yTarget = yMax - oy;
+        }
+      }
+    }
+
+    /// Right-Center => Left-Anywhere
+    else if (type == MovingType.rightCenterLeftAnywhere) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + (ox / 2);
+
+      /// Calculate the distances from each side
+      double rightDistance = xCenter;
+      double leftDistance = xMax - xCenter;
+
+      /// Find the nearest side
+      double minDistance = min(rightDistance, leftDistance);
+
+      if (minDistance == rightDistance) {
+        xTarget = 0;
+      } else if (minDistance == leftDistance) {
+        xTarget = xMax - ox;
+        yTarget = (yMax - oy) / 2;
+      }
+    }
+
+    /// Right-Center => Left-Corner
+    else if (type == MovingType.rightCenterLeftCorner) {
+      /// Calculate the center of the object
+      double xCenter = xTarget + ox / 2;
+      double yCenter = yTarget + oy / 2;
+
+      /// Calculate the distances from each side
+      double rightDistance = xCenter;
+      double leftDistance = xMax - (xCenter + ox);
+
+      /// Find the nearest side
+      double minDistance = min(rightDistance, leftDistance);
+
+      if (minDistance == rightDistance) {
+        xTarget = 0;
+
+        /// Calculate the mid of the area
+        double yMid = yMax / 2;
+
+        /// Find the nearest corner
+        if (yCenter <= yMid) {
+          yTarget = 0;
+        } else {
+          yTarget = yMax - oy;
+        }
+      } else if (minDistance == leftDistance) {
+        xTarget = xMax - ox;
+        yTarget = (yMax - oy) / 2;
+      }
+    }
+
+    /// None
+    else {
+      return offset;
     }
 
     return Offset(xTarget, yTarget);
   }
 }
 
-enum DraggingMode {
+class MoveableObject extends StatelessWidget {
+  final double width;
+  final double height;
+  final double spacer;
+  final bool circular;
+  final Widget? child;
+
+  const MoveableObject({
+    super.key,
+    required double width,
+    required double height,
+    this.spacer = 0,
+    this.child,
+  })  : width = width + (spacer * 2),
+        height = height + (spacer * 2),
+        circular = false;
+
+  const MoveableObject.circle({
+    super.key,
+    required double size,
+    this.spacer = 0,
+    this.child,
+  })  : width = size + (spacer * 2),
+        height = size + (spacer * 2),
+        circular = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width - (spacer * 2),
+      height: height - (spacer * 2),
+      margin: EdgeInsets.all(spacer),
+      clipBehavior: circular ? Clip.antiAlias : Clip.none,
+      decoration: circular ? const BoxDecoration(shape: BoxShape.circle) : null,
+      child: child,
+    );
+  }
+}
+
+enum MovingType {
   anywhere,
   centerSide,
   cornerSide,
@@ -616,47 +560,4 @@ enum DraggingMode {
   leftCenterRightCorner,
   rightCenterLeftAnywhere,
   rightCenterLeftCorner;
-
-  bool get isAnywhere => this == DraggingMode.anywhere;
-
-  bool get isCenterSide => this == DraggingMode.centerSide;
-
-  bool get isCornerSide => this == DraggingMode.cornerSide;
-
-  bool get isNearestSide => this == DraggingMode.nearestSide;
-}
-
-class DraggableObject extends StatelessWidget {
-  final double width;
-  final double height;
-  final bool circular;
-  final Widget? child;
-
-  const DraggableObject({
-    super.key,
-    required this.width,
-    required this.height,
-    this.child,
-  }) : circular = false;
-
-  const DraggableObject.circle({
-    super.key,
-    required double size,
-    this.child,
-  })  : width = size,
-        height = size,
-        circular = true;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: height,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        shape: circular ? BoxShape.circle : BoxShape.rectangle,
-      ),
-      child: child,
-    );
-  }
 }

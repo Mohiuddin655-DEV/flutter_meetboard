@@ -14,13 +14,14 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text("Draggable Example"),
+          title: const Text("Moveable Object"),
         ),
-        body: DraggableView(
-          draggingAnimTime: 0,
-          type: DraggingMode.bottomCenterTopAnywhere,
-          object: DraggableObject.circle(
+        body: Moveable(
+          alignment: Alignment.bottomLeft,
+          type: MovingType.nearestSide,
+          object: MoveableObject.circle(
             size: 100,
+            spacer: 0,
             child: Container(color: Colors.red),
           ),
           child: const SizedBox(
